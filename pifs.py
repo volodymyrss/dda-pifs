@@ -2,6 +2,7 @@ import subprocess
 import dataanalysis as da
 import dataanalysis 
 import ddosa
+import glob
 import ast
 import pyfits,pywcs
 import os
@@ -18,8 +19,9 @@ class ii_pif(ddosa.DataAnalysis):
 
     cached=True
 
-    version="thermfov"
-    #version="oof100"
+    #version="thermfov"
+    #version="std"
+    version="oof100"
 
    # write_caches=[dataanalysis.TransientCache,ddosa.MemCacheIntegralFallback,ddosa.MemCacheIntegralIRODS]
    # read_caches=[dataanalysis.TransientCache,ddosa.MemCacheIntegralFallback,ddosa.MemCacheIntegralFallbackOldPath,ddosa.MemCacheIntegralIRODS]
@@ -28,6 +30,7 @@ class ii_pif(ddosa.DataAnalysis):
 
     #ii_pif_binary=os.environ['COMMON_INTEGRAL_SOFTDIR']+"/ii_pif/ii_pif_oof/ii_pif"
     ii_pif_binary=os.environ['COMMON_INTEGRAL_SOFTDIR']+"/i_one/ii_pif_therm_outfov/ii_pif"
+    #ii_pif_binary="ii_pif"
 
     def get_cat(self):
         return self.input_cat.cat.get_path()
@@ -46,7 +49,7 @@ class ii_pif(ddosa.DataAnalysis):
                     self.input_gti.output_gti.get_path()
                 ])
 
-        ddosa.import_attr(self.input_scw.scwpath+"/swg.fits",["OBTSTART","OBTEND","TSTART","TSTOP","SW_TYPE","TELAPSE"])
+        ddosa.import_attr(self.input_scw.scwpath+"/swg.fits",["OBTSTART","OBTEND","TSTART","TSTOP","SW_TYPE","TELAPSE","RA_SCX","DEC_SCX","RA_SCZ","DEC_SCZ"])
         ddosa.set_attr({'ISDCLEVL':"BIN_I"})
         ddosa.set_attr({'INSTRUME':"IBIS"},"og.fits")
 
@@ -116,4 +119,83 @@ class ii_pif_fromimaging(ii_pif):
 
     def get_cat(self):
         return self.input_cat.srclres.get_path()      
+
+
+class evts_extract(ddosa.DataAnalysis):
+    input_events=ddosa.ISGRIEvents
+    input_scw=ddosa.ScWData
+    input_cat=ddosa.CatExtract
+    #input_image=ddosa.ii_skyimage
+   # input_ic=ddosa.IBIS_ICRoot
+  #  input_bins=ddosa.ImageBins
+    input_pifs=ii_pif
+    input_gti=ddosa.ibis_gti
+    input_dead=ddosa.ibis_dead
+
+    cached=True
+
+    def main(self):
+        att=self.input_scw.auxadppath+"/attitude_historic.fits"
+        if os.path.exists(att) or os.path.exists(att+".gz"):
+            att=self.input_scw.auxadppath+"/attitude_historic.fits[AUXL-ATTI-HIS,1,BINTABLE]"
+            attp=att
+        else:
+            att=self.input_scw.auxadppath+"/attitude_snapshot.fits[AUXL-ATTI-SNA,1,BINTABLE]"
+            attp_g=glob.glob(self.input_scw.auxadppath+"/attitude_predicted_*.fits*")
+            attp=attp_g[0]+"[AUXL-ATTI-PRE,1,BINTABLE]"
+        
+        orb=self.input_scw.auxadppath+"/orbit_historic.fits"
+        if os.path.exists(orb) or os.path.exists(orb+".gz"):
+            orb=self.input_scw.auxadppath+"/orbit_historic.fits[AUXL-ORBI-HIS,1,BINTABLE]"
+            orbp=orb
+        else:
+            orb=self.input_scw.auxadppath+"/orbit_snapshot.fits[AUXL-ORBI-SNA,1,BINTABLE]"
+            orbp_g=glob.glob(self.input_scw.auxadppath+"/orbit_predicted_*.fits*")
+            orbp=orbp_g[0]+"[AUXL-ORBI-PRE,1,BINTABLE]"
+
+        ddosa.construct_gnrl_scwg_grp(self.input_scw,[\
+                    #self.input_cat.cat.get_path(),
+                    self.input_scw.auxadppath+"/time_correlation.fits[AUXL-TCOR-HIS]",
+                    self.input_scw.scwpath+"/isgri_events.fits[ISGR-EVTS-ALL]", \
+                   # self.input_scw.scwpath+"/ibis_hk.fits[IBIS-DPE.-CNV]", \
+                    self.input_gti.output_gti.get_path(),
+                    self.input_events.events.get_path(),
+                    attp,
+                    orbp,
+                    self.input_dead.output_dead.get_path(),
+                    self.input_pifs.pifs.get_path()
+                ])
+
+
+        ddosa.import_attr(self.input_scw.scwpath+"/swg.fits",["OBTSTART","OBTEND","TSTART","TSTOP","SW_TYPE","TELAPSE","RA_SCX","DEC_SCX","RA_SCZ","DEC_SCZ"])
+        ddosa.set_attr({'ISDCLEVL':"BIN_I"})
+        ddosa.set_attr({'INSTRUME':"IBIS"},"og.fits")
+
+        ddosa.construct_gnrl_scwg_grp_idx([\
+                    "og.fits",
+                ])
+        ddosa.set_attr({'ISDCLEVL':"BIN_I"},"og_idx.fits")
+
+        ddosa.construct_og([\
+                    "og_idx.fits",
+                ])
+        ddosa.set_attr({'ISDCLEVL':"BIN_I"},"ogg.fits")
+
+        source_evts="source_evts.fits"
+        ddosa.remove_withtemplate(source_evts+"(ISGR-EVTS-ALL.tpl)")
+
+        ee=ddosa.heatool("evts_extract")
+        ee['group']="ogg.fits" 
+        ee['events']=source_evts
+        ee['instrument']="IBIS" 
+        ee['sources']=self.input_cat.cat.get_path()
+        ee['gtiname']="MERGED_ISGRI" 
+        ee['pif']='yes'
+        ee['pifDOL']=self.input_pifs.pifs.get_path()
+        ee['deadc']='yes'
+        ee['attach']="no"
+        ee['barycenter']=1
+        ee['timeformat']=0
+        ee['instmod']=""
+        ee.run()
 
