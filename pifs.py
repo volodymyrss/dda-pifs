@@ -4,7 +4,7 @@ import dataanalysis
 import ddosa
 import glob
 import ast
-import pyfits,pywcs
+import astropy.io.fits as fits
 import os
 
 class ii_pif(ddosa.DataAnalysis):
@@ -29,8 +29,8 @@ class ii_pif(ddosa.DataAnalysis):
     off_edge_pixels=None
 
     #ii_pif_binary=os.environ['COMMON_INTEGRAL_SOFTDIR']+"/ii_pif/ii_pif_oof/ii_pif"
-    ii_pif_binary=os.environ['COMMON_INTEGRAL_SOFTDIR']+"/i_one/ii_pif_therm_outfov/ii_pif"
-    #ii_pif_binary="ii_pif"
+    #ii_pif_binary=os.environ['COMMON_INTEGRAL_SOFTDIR']+"/i_one/ii_pif_therm_outfov/ii_pif"
+    ii_pif_binary="ii_pif"
 
     def get_cat(self):
         return self.input_cat.cat.get_path()
@@ -39,7 +39,7 @@ class ii_pif(ddosa.DataAnalysis):
         try:
             catpath=self.get_cat()
         except Exception as e:
-            print "an exception getting cat:",e
+            print("an exception getting cat:",e)
             self.empty_results=True
             return
 
@@ -92,7 +92,7 @@ class CatFromImaging(ddosa.DataAnalysis):
     input_cat=ddosa.ii_skyimage
 
     def main(self):
-        skyres=pyfits.open(self.input_cat.skyres.get_path())[2].data # eband?
+        skyres=fits.open(self.input_cat.skyres.get_path())[2].data # eband?
 
         fn="isgri_cat_from_image.fits"
         tpl="ISGR-SRCL-CAT.tpl"
@@ -103,9 +103,9 @@ class CatFromImaging(ddosa.DataAnalysis):
         ht['obj_name']=fn
         ht.run()
 
-        fo=pyfits.open(fn)
+        fo=fits.open(fn)
 
-        fo['ISGR-SRCL-CAT'] = pyfits.BinTableHDU.from_columns(fo['ISGR-SRCL-CAT'].columns, nrows=len(skyres),header=fo['ISGR-SRCL-CAT'].header)
+        fo['ISGR-SRCL-CAT'] = fits.BinTableHDU.from_columns(fo['ISGR-SRCL-CAT'].columns, nrows=len(skyres),header=fo['ISGR-SRCL-CAT'].header)
         fo['ISGR-SRCL-CAT'].data['RA_OBJ']=skyres['RA_FIN']
         fo['ISGR-SRCL-CAT'].data['DEC_OBJ']=skyres['DEC_FIN']
         fo.writeto(fn,clobber=True)
@@ -141,7 +141,12 @@ class evts_extract(ddosa.DataAnalysis):
             attp=att
         else:
             att=self.input_scw.auxadppath+"/attitude_snapshot.fits[AUXL-ATTI-SNA,1,BINTABLE]"
-            attp_g=glob.glob(self.input_scw.auxadppath+"/attitude_predicted_*.fits*")
+            att_p = self.input_scw.auxadppath+"/attitude_predicted_*.fits*"
+            attp_g=glob.glob(att_p)
+
+            if len(attp_g) == 0:
+                raise Exception("cannt find attitude: %s"%att_p)
+
             attp=attp_g[0]+"[AUXL-ATTI-PRE,1,BINTABLE]"
         
         orb=self.input_scw.auxadppath+"/orbit_historic.fits"
@@ -150,7 +155,12 @@ class evts_extract(ddosa.DataAnalysis):
             orbp=orb
         else:
             orb=self.input_scw.auxadppath+"/orbit_snapshot.fits[AUXL-ORBI-SNA,1,BINTABLE]"
-            orbp_g=glob.glob(self.input_scw.auxadppath+"/orbit_predicted_*.fits*")
+            orb_p=self.input_scw.auxadppath+"/orbit_predicted*.fits*"
+            orbp_g=glob.glob(orb_p)
+
+            if len(orbp_g) == 0:
+                raise Exception("cannt find orbit: %s"%orb_p)
+
             orbp=orbp_g[0]+"[AUXL-ORBI-PRE,1,BINTABLE]"
 
         ddosa.construct_gnrl_scwg_grp(self.input_scw,[\
@@ -199,3 +209,4 @@ class evts_extract(ddosa.DataAnalysis):
         ee['instmod']=""
         ee.run()
 
+        self.evts=da.DataFile(source_evts)
